@@ -7,14 +7,14 @@
     "folds" : "",
     "hash" : "0",
     "id" : "C922995C",
-    "lastKnownWriteTime" : 1604587838,
-    "last_content_update" : 1604587838728,
+    "lastKnownWriteTime" : 1604591903,
+    "last_content_update" : 1604591903446,
     "path" : "~/Programs/predictit_API/PredictitAPI.Rmd",
     "project_path" : "PredictitAPI.Rmd",
     "properties" : {
         "chunk_output_type" : "inline",
-        "cursorPosition" : "90,205",
-        "scrollLine" : "87"
+        "cursorPosition" : "221,123",
+        "scrollLine" : "216"
     },
     "read_only" : false,
     "read_only_alternatives" : [
