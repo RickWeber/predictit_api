@@ -1,0 +1,5 @@
+"0","data_unnest <- data %>%
+  unnest()
+"
+"2","`cols` is now required when using unnest().
+Please use `cols = c(contracts)`"

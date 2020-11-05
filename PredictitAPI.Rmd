@@ -42,9 +42,183 @@ names(data)
 `contracts` has what I'm really after, I think. Let's look.
 
 ```{r}
-data$contracts
+data$contracts %>% length
 ```
 
+Just before setting up the git repository for this project there was 184 markets. It looks like 10 markets have been closed in the last 15 minutes. In any case, when I look to closely at data$contracts it bogs everything down. It's too much data at once in 174 individual dataframes. I think I need to unnest this.
+
+```{r}
+data_unnest <- data %>%
+  unnest()
+```
+You know what, I'm going to drop some columns I don't care about...
+
+```{r}
+data <- data %>%
+  select(-image,-url)
+data_unnest <- data %>%
+  unnest()
+head(data_unnest)
+```
+
+Alright, we've got a few rows for each market, where each row has a unique value for id1, another image I don't want, and a bunch of prices I do want.
+
+```{r}
+names(data_unnest)
+data_unnest %>%
+  select(id,id1,status:status1,name,name1) %>%
+  head()
+```
+
+That looks better. I've got id of the market, id of the contract (e.g. "Democrat wins"), status, and some prices. The order doesn't really matter, but it makes it easier for me if I don't have to scroll through the data while I'm figuring things out.
+
+So if I `pull()` the data, `unnest()` it and drop a few columns, I've got pretty much all I want. I might as well convert the timestamp into a proper datetime format to make life easier down the line, but this should be pretty easy.
+
+```{r}
+process <- function(){
+  # pull the data
+  df <- pull()$markets
+  # unnest, drop columns
+  df <- df %>%
+    unnest %>%
+    # select(-contains("url" | "image" | "shortName")) # not sure why that isn't working. :(
+    select(contains("id"),status:status1,name,name1)
+  return(df)
+}
+process() %>% head()
+```
+
+Alright, now I just need to append the data to some existing dataset. The easiest option would be to just save a new csv every minute. But the data would be more useful if it's at least bundled up by day. If I figure on 200 markets turning into 800 contracts, That's 800 rows per minute or 1.152 million in a day. Now, if each row was 1 byte, We're looking at a megabyte per day which isn't awful. But at that rate it isn't hard to end up with a big file, especially considering each row has many bytes of data that multiply that math. 
+
+Check this out:
+
+```{r}
+# take the first row of our data
+data_unnest[1,] %>%
+  # turn it all into one long string
+  reduce(paste) %>%
+  # then tab autocomplete on `str_` because I'm sure
+  # the stringr library (part of tidyverse) has something 
+  str_count
+```
+
+We've got 299 characters. We could reduce some of this (e.g. using the short names instead of long names, dropping the urls and image columns, replacing "Open" with "1", etc.). Just by selecting down to the variables `process` gives, this is already cut to 148 characters. I'm calling diminishing marginal returns. I'll wait till the space becomes a problem before trimming any more fat.
+
+Now let's sort out the time variable. After that, I can improve `process`. Then I've got to figure out a way to roll the data into convenient sizes. 148 bytes per row times 1000 rows is 148 kB. Times `60*24` hours is 213,120 kB. 213 MB is too big a file. Now, I'm overestimating the data, but that's on purpose. I don't need to fry my computer, even if I'm going to be running this on my old laptop. 
+
+Forget that for now, let's work on the time formatting.
+
+```{r}
+data_unnest %>% select(timeStamp) %>% head()
+```
+
+Let's consult the [https://lubridate.tidyverse.org/](Lubridate documentation). 
+
+```{r}
+library(lubridate)
+data_unnest %>%
+  mutate(timeStamp = parse_datetime(timeStamp)) %>%
+  select(timeStamp) %>% head()
+```
+
+Okay, that wasn't too bad. It could be faster. As long as I'm here, I'll at least check to see if it's easy...
+
+```{r}
+data_unnest %>%
+  mutate(timeStamp = ymd_hms(timeStamp)) %>%
+  select(timeStamp) %>% head()
+```
+Wait, was it that easy? Is that really faster?
+
+```{r}
+system.time({data_unnest %>% # also, turns out this was readr, not lubridate
+           mutate(timeStamp = parse_datetime(timeStamp))})
+system.time({data_unnest %>%
+           mutate(timeStamp = ymd_hms(timeStamp))})
+```
+
+That's a pretty casual look, but the readr version looks like it take half the time. I'm going to be lazy and stick with that. Let's update `process`.
+
+```{r}
+process <- function(){
+  pull()$markets %>%
+    unnest %>%
+    select(contains("id"),status:status1,name,name1) %>%
+    mutate(timeStamp = parse_datetime(timeStamp))
+}
+process() %>% head
+```
+
+Alright, now I need to think about how to bundle the data. Looking at `data_unnest` in Rstudio (why didn't I think of that sooner?) shows the current data is only about 220 KB, so we're looking at about 6 MB per day. That's not terrible. I could set up a cronjob to deal with that. But I think I might prefer to have the job run hourly so that if something happens, I'm losing data by the hour instead of by the day. I can make another script to run daily and string together all the data saved each hour.
+
+```{r}
+one_hour <- function(){
+  df <- process()
+  filename <- paste("PI_data_",
+                    Sys.time(),
+                    ".csv",
+                    sep = "")
+  for(i in 1:60){
+    Sys.sleep(60)
+    df <- df %>%
+      full_join(process())
+  }
+  write_csv(df,filename)
+} ; one_hour()
+```
+
+That should do it, but let me make a version that'll be easier to test without being patient.
+
+```{r}
+repeat_pi <- function(n = 60){
+  df <- process()
+  filename <- paste("PI_data_",
+                    Sys.time(),
+                    "_n_",n,
+                    ".csv",
+                    sep = "")
+  for(i in 1:n){
+    Sys.sleep(60)
+    df <- df %>%
+      full_join(process())
+  }
+  write_csv(df,filename)
+}
+repeat_pi(0)
+```
+
+Okay, I was hoping 0 would make it skip the loop and give me a single call. I guess it's just going to count down from 1 and get the same result as going through the loop from 1 to 2. Alright. Good to know. n=1 gives the fastest call to this function: get the data, wait a minute, get it again, and then save it.
+
+But it works! Let's make it so that n is adjusted to loop over (n-1) just to make it more intuitively obvious.
+
+```{r}
+repeat_pi <- function(n = 60){
+  df <- process()
+  filename <- paste("PI_data_",
+                    Sys.time(),
+                    "_n_",n,
+                    ".csv",
+                    sep = "")
+  if(n <= 1){
+    write_csv(df,filename)
+    break
+  } else {
+    n <- n - 1
+  }
+  for(i in 1:n){
+    Sys.sleep(60)
+    df <- df %>%
+      full_join(process())
+  }
+  write_csv(df,filename)
+}
+repeat_pi(5)
+```
+
+I'm going to update git and get some breakfast while this runs.
+
+## Old Code
+### This is the stuff I found left in this folder from last year.
 
 Okay, I've got the data, but before I worry about gathering a lot of it, let me sort out the process of cleaning it. I'll start with the easiest problem: unnesting the contracts information in the case of binary markets (e.g. "will X happen, yes or no?" as opposed to "which of these several outcomes will happen?").
 
