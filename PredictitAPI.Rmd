@@ -14,7 +14,7 @@ rm(list = ls())
 library(tidyverse)
 library(jsonlite)
 
-url = 'https://www.predictit.org/api/marketdata/all'
+url <- 'https://www.predictit.org/api/marketdata/all'
 
 download.file(url,'data.json')
 
@@ -217,91 +217,6 @@ repeat_pi(5)
 
 I'm going to update git and get some breakfast while this runs.
 
-## Old Code
-### This is the stuff I found left in this folder from last year.
+Actually, I'm going to confuse myself with git after accidentally adding a bunch of unneeded files to the repo. 
 
-Okay, I've got the data, but before I worry about gathering a lot of it, let me sort out the process of cleaning it. I'll start with the easiest problem: unnesting the contracts information in the case of binary markets (e.g. "will X happen, yes or no?" as opposed to "which of these several outcomes will happen?").
-
-```{r}
-data$markets$contracts
-t <- data$markets %>% sample_n(1)
-head(t)
-```
-
-Ugh. How is my nice looking tibble hiding the fact that it's actually `data$markets` that I'm after?
-
-```{r}
-head(data$markets)
-```
-
-Let's sort this out from the get go:
-```{r}
-data <- fromJSON("data.json",simplifyDataFrame = TRUE)
-data <- data$markets
-# head(data) # That works
-t <- data %>% filter(id == 2747)
-# head(t) # And more importantly, *that* works
-```
-
-Now let's see what's in the contracts folder.
-
-```{r}
-t$contracts
-```
-
-That's the good stuff. Let me create a simple function to rename things to avoid conflicts when I try to unnest this into the main data frame.
-
-```{r}
-# colnames(t$contracts) # NULL
-# names(t$contracts) # NULL
-# unlist(t$contracts) # nope... that's not gonna do it.
-# unnest(t$contracts) # that won't work either...
-is(t$contracts)
-```
-
-Okay, the data I want is in this list, and I'm not sure how to pull it out. 
-
-```{r}
-t2 <- t$contracts[[1]]
-t2
-```
-
-Oh... that should have been more obvious. Oh well... Now I can tidy up my code:
-
-```{r}
-data <- fromJSON("data.json",simplifyDataFrame = TRUE)
-data <- data$markets
-t <- data %>% filter(id == 2747)
-t <- t$contracts[[1]]
-```
-
-Technically, all this work I've done has basically boiled down to a lot of code written and deleted. Like good writing, good coding involves a lot of editing. But let me get back to work...
-
-```{r}
-colnames(t)[c(1,3)] <- c("contract_id","contract_image")
-t
-```
-
-I think I can get by only renaming those two columns. Let's try to join it back to the original data.
-
-```{r}
-data_cuban <- data %>% filter(id == 2747)
-full_join(data_cuban,t)
-```
-
-That looks like it'll do what I want. Now let's get ready to wrap it up in a function and apply it to all of the data. I might need to filter the dataset down to binary markets, but maybe it'll just work. So let's try that first.
-
-```{r}
-pull_out_contracts <- function(df_row){
-  contracts <- df_row$contracts[[1]]
-  colnames(contracts)[c(1,3)] <- c("contract_id","contract_image")
-  contracts
-}
-C <- apply(X = data,MARGIN = 1,FUN = function(x) {
-  pull_out_contracts(x) %>% full_join(x)
-  }
-  )
-?inner_join
-```
-
-Not working, but I'll pick it up later...
+In any event, I've got something that can roll together a bunch of data for me. Let's put it into a script. `hourly_data.R`
