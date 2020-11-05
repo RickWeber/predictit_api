@@ -1,0 +1,133 @@
+---
+title: "Predictit API Notebook"
+output: html_notebook
+---
+
+# Let's use an API
+
+[Predictit](https://www.predictit.org/) is a prediction market that gives pretty good insight into uncertaint events that have yet to happen. They also have an API that gives current data, but I want historical data. So I'll collect it myself.
+
+My basic plan is to build a script that runs every minute (that's how often their API updates), to pull the data from their server, do some processing, and add the new data to an existing dataset. There will be decisions to be made along the way, but let's start by working through the problem.
+
+```{r}
+rm(list = ls())
+library(tidyverse)
+library(jsonlite)
+
+url = 'https://www.predictit.org/api/marketdata/all'
+
+download.file(url,'data.json')
+
+data <- fromJSON("data.json",simplifyDataFrame = TRUE)
+head(data)
+```
+
+Okay, I've got the data, but I wonder if I can use `readr` to push it directly into a tibble.
+
+```{r}
+fromJSON(url)
+```
+
+Cool! Although that was all `jsonlite`. The last time I looked at this problem (before getting distracted and wandering off) was about a year ago. And past Rick figured out something that isn't obvious to present Rick: The data is a list of one item and that one item is the dataframe that I actually want. It's named `markets`.
+
+```{r}
+pull <- function(){
+  fromJSON(url)
+}
+pull()$markets %>% dim()
+data <- pull()$markets
+names(data)
+```
+
+`contracts` has what I'm really after, I think. Let's look.
+
+```{r}
+data$contracts
+```
+
+
+Okay, I've got the data, but before I worry about gathering a lot of it, let me sort out the process of cleaning it. I'll start with the easiest problem: unnesting the contracts information in the case of binary markets (e.g. "will X happen, yes or no?" as opposed to "which of these several outcomes will happen?").
+
+```{r}
+data$markets$contracts
+t <- data$markets %>% sample_n(1)
+head(t)
+```
+
+Ugh. How is my nice looking tibble hiding the fact that it's actually `data$markets` that I'm after?
+
+```{r}
+head(data$markets)
+```
+
+Let's sort this out from the get go:
+```{r}
+data <- fromJSON("data.json",simplifyDataFrame = TRUE)
+data <- data$markets
+# head(data) # That works
+t <- data %>% filter(id == 2747)
+# head(t) # And more importantly, *that* works
+```
+
+Now let's see what's in the contracts folder.
+
+```{r}
+t$contracts
+```
+
+That's the good stuff. Let me create a simple function to rename things to avoid conflicts when I try to unnest this into the main data frame.
+
+```{r}
+# colnames(t$contracts) # NULL
+# names(t$contracts) # NULL
+# unlist(t$contracts) # nope... that's not gonna do it.
+# unnest(t$contracts) # that won't work either...
+is(t$contracts)
+```
+
+Okay, the data I want is in this list, and I'm not sure how to pull it out. 
+
+```{r}
+t2 <- t$contracts[[1]]
+t2
+```
+
+Oh... that should have been more obvious. Oh well... Now I can tidy up my code:
+
+```{r}
+data <- fromJSON("data.json",simplifyDataFrame = TRUE)
+data <- data$markets
+t <- data %>% filter(id == 2747)
+t <- t$contracts[[1]]
+```
+
+Technically, all this work I've done has basically boiled down to a lot of code written and deleted. Like good writing, good coding involves a lot of editing. But let me get back to work...
+
+```{r}
+colnames(t)[c(1,3)] <- c("contract_id","contract_image")
+t
+```
+
+I think I can get by only renaming those two columns. Let's try to join it back to the original data.
+
+```{r}
+data_cuban <- data %>% filter(id == 2747)
+full_join(data_cuban,t)
+```
+
+That looks like it'll do what I want. Now let's get ready to wrap it up in a function and apply it to all of the data. I might need to filter the dataset down to binary markets, but maybe it'll just work. So let's try that first.
+
+```{r}
+pull_out_contracts <- function(df_row){
+  contracts <- df_row$contracts[[1]]
+  colnames(contracts)[c(1,3)] <- c("contract_id","contract_image")
+  contracts
+}
+C <- apply(X = data,MARGIN = 1,FUN = function(x) {
+  pull_out_contracts(x) %>% full_join(x)
+  }
+  )
+?inner_join
+```
+
+Not working, but I'll pick it up later...
