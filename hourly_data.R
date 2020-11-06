@@ -1,4 +1,6 @@
+#!/usr/bin/R
 library(tidyverse)
+library(jsonlite)
 
 url <- 'https://www.predictit.org/api/marketdata/all'
 
@@ -15,7 +17,7 @@ process <- function(){
 
 repeat_pi <- function(n = 60){
   df <- process()
-  filename <- paste("PI_data_",
+  filename <- paste("~/Downloads/PI_data_",
                     Sys.time(),
                     "_n_",n,
                     ".csv",
